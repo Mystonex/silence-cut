@@ -1,0 +1,9 @@
+node_modules/
+dist/
+out/
+build/
+*.log
+.DS_Store
+
+# Local, user-exported settings copies (the tracked config lives in /settings)
+*.local.dom
