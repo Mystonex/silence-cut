@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎬 Silence Cut
+# 🎬 Silence Cutter
 
 ### Automatic dead-air cutter for streams & long recordings
 
@@ -25,7 +25,7 @@
 You stream. You record long takes. And between the good moments there are those
 awkward stretches where you're reading chat, thinking, or just *not talking*.
 
-**Silence Cut** scans a video's audio, finds every quiet stretch below a loudness
+**Silence Cutter** scans a video's audio, finds every quiet stretch below a loudness
 threshold you set (in **dB**), and lines up clean cuts — trimming the silence
 while leaving a little breathing room before and after. You review each cut on a
 waveform timeline, veto the ones you want to keep, then export a trimmed video
@@ -61,7 +61,7 @@ npm start        # launch the app
 
 | Command | What it does |
 | ------- | ------------ |
-| `npm start` | Launch Silence Cut |
+| `npm start` | Launch Silence Cutter |
 | `npm run dev` | Launch with DevTools attached |
 | `npm run check` | Syntax-check all source files |
 
@@ -101,7 +101,7 @@ Config lives in [`settings/`](settings/) as **`.dom`** files.
 | File | Purpose |
 | ---- | ------- |
 | [`default.dom`](settings/default.dom) | Factory defaults. *Reset to defaults* copies this over the active file. |
-| [`hushcut.dom`](settings/hushcut.dom) | The **active** config the app reads/writes — your working copy. |
+| [`silence-cutter.dom`](settings/silence-cutter.dom) | The **active** config the app reads/writes — your working copy. |
 
 The setting to start with is **`detection.thresholdDb`** (default `-30`): audio
 quieter than this counts as dead air. Lower it (e.g. `-40`) to catch only the
@@ -141,7 +141,7 @@ video-cutting/
 ├─ package.json
 ├─ settings/
 │  ├─ default.dom        # factory defaults
-│  ├─ hushcut.dom        # active config (read/written by the app)
+│  ├─ silence-cutter.dom # active config (read/written by the app)
 │  └─ README.md          # field reference
 └─ src/
    ├─ main/

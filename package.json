@@ -1,0 +1,21 @@
+{
+  "name": "silence-cutter",
+  "productName": "Silence Cutter",
+  "version": "0.1.0",
+  "description": "Automatically detect and cut dead air (silence) from stream recordings and videos.",
+  "main": "src/main/main.js",
+  "author": "Domschii",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "check": "node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/settings.js && node --check src/renderer/renderer.js"
+  },
+  "devDependencies": {
+    "electron": "^32.1.2"
+  },
+  "optionalDependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0"
+  }
+}

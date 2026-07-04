@@ -1,0 +1,23 @@
+{
+  "$format": "Silence Cutter DOM — Dead-air Options Manifest",
+  "$schema": 1,
+  "version": "0.1.0",
+  "detection": {
+    "thresholdDb": -5,
+    "minSilenceSec": 2.4,
+    "leadInSec": 0.4,
+    "leadOutSec": 0.4,
+    "minKeepSec": 0.5
+  },
+  "output": {
+    "mode": "both",
+    "format": "mp4",
+    "suffix": "_silencecut",
+    "cutlistFormat": "json"
+  },
+  "app": {
+    "theme": "dark",
+    "accent": "#e25222",
+    "ffmpegPath": ""
+  }
+}

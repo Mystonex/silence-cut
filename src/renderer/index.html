@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; media-src 'self' file:;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Silence Cutter</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="theme-dark">
+  <!-- Draggable glass title bar -->
+  <header class="titlebar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12h3l2-7 4 14 3-9 2 2h4" />
+        </svg>
+      </span>
+      <span class="brand-name">Silence Cutter</span>
+      <span class="brand-badge">v0.1</span>
+    </div>
+
+    <div class="titlebar-actions no-drag">
+      <button id="btn-import" class="pill" title="Import a video (⌘O)">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+        Import
+      </button>
+      <button id="btn-analyze" class="pill pill-accent" title="Detect dead air (⌘R)" disabled>
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+        Analyze
+      </button>
+      <button id="btn-settings" class="icon-btn" title="Settings (⌘,)">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <!-- Empty state -->
+    <section id="dropzone" class="dropzone">
+      <div class="dropzone-inner glass">
+        <div class="drop-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m10 11 5 3-5 3z"/></svg>
+        </div>
+        <h1>Drop a video to trim the dead air</h1>
+        <p>Silence Cutter finds the quiet stretches — the moments you stop talking — and lets you cut them in one pass.</p>
+        <button id="btn-import-2" class="pill pill-accent big">Choose a file…</button>
+        <p class="hint">MP4 · MKV · MOV · WEBM · AVI and more</p>
+      </div>
+    </section>
+
+    <!-- Editor state -->
+    <section id="editor" class="editor hidden">
+      <div class="filecard glass">
+        <div class="filecard-main">
+          <div class="file-title" id="file-name">—</div>
+          <div class="file-sub" id="file-sub">—</div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><span class="stat-val" id="stat-cuts">0</span><span class="stat-label">dead spots</span></div>
+          <div class="stat"><span class="stat-val" id="stat-removed">0:00</span><span class="stat-label">to remove</span></div>
+          <div class="stat"><span class="stat-val" id="stat-result">0:00</span><span class="stat-label">final length</span></div>
+        </div>
+      </div>
+
+      <div class="timeline-card glass">
+        <div class="timeline-head">
+          <span class="tl-title">Timeline</span>
+          <span class="tl-legend">
+            <span class="lg lg-keep">keep</span>
+            <span class="lg lg-cut">cut</span>
+            <span class="tl-hint">click a red block to keep it</span>
+          </span>
+        </div>
+        <div id="timeline" class="timeline">
+          <canvas id="waveform" class="waveform"></canvas>
+          <div id="seg-layer" class="seg-layer"></div>
+          <div id="playhead" class="playhead" hidden></div>
+        </div>
+        <div id="ruler" class="ruler"></div>
+      </div>
+
+      <div class="segments-card glass">
+        <div class="segments-head">
+          <span>Detected dead spaces</span>
+          <div class="seg-actions">
+            <button id="btn-all-cut" class="mini">Cut all</button>
+            <button id="btn-all-keep" class="mini">Keep all</button>
+          </div>
+        </div>
+        <ul id="segment-list" class="segment-list"></ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <div id="status" class="status">Ready.</div>
+    <div class="status-actions">
+      <button id="btn-export-cutlist" class="pill" disabled>Export cut list</button>
+      <button id="btn-export-video" class="pill pill-accent" disabled>Export trimmed video</button>
+    </div>
+  </footer>
+
+  <!-- Settings drawer -->
+  <div id="scrim" class="scrim" hidden></div>
+  <aside id="settings-drawer" class="drawer glass" aria-hidden="true">
+    <div class="drawer-head">
+      <h2>Settings</h2>
+      <button id="btn-close-settings" class="icon-btn" title="Close">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="drawer-body">
+      <section class="field-group">
+        <h3>Detection</h3>
+
+        <label class="field">
+          <span class="field-label">Silence threshold <em id="v-threshold">-30 dB</em></span>
+          <input id="s-threshold" type="range" min="-90" max="0" step="1" />
+          <span class="field-help">Audio quieter than this counts as dead air.</span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Min. silence length <em id="v-minsil">1.5 s</em></span>
+          <input id="s-minsil" type="range" min="0.1" max="10" step="0.1" />
+          <span class="field-help">Ignore pauses shorter than this.</span>
+        </label>
+
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">Lead-in <em id="v-leadin">0.4 s</em></span>
+            <input id="s-leadin" type="range" min="0" max="3" step="0.05" />
+            <span class="field-help">Kept before speech resumes.</span>
+          </label>
+          <label class="field">
+            <span class="field-label">Lead-out <em id="v-leadout">0.4 s</em></span>
+            <input id="s-leadout" type="range" min="0" max="3" step="0.05" />
+            <span class="field-help">Kept after speech ends.</span>
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="field-label">Min. kept clip <em id="v-minkeep">0.5 s</em></span>
+          <input id="s-minkeep" type="range" min="0" max="5" step="0.1" />
+          <span class="field-help">Drop kept slivers shorter than this.</span>
+        </label>
+      </section>
+
+      <section class="field-group">
+        <h3>Output</h3>
+        <label class="field">
+          <span class="field-label">Produce</span>
+          <select id="s-mode" class="select">
+            <option value="both">Trimmed video + cut list</option>
+            <option value="video">Trimmed video only</option>
+            <option value="cutlist">Cut list only</option>
+          </select>
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">Container</span>
+            <select id="s-format" class="select">
+              <option value="mp4">MP4</option>
+              <option value="mkv">MKV</option>
+              <option value="mov">MOV</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">Filename suffix</span>
+            <input id="s-suffix" type="text" class="text" spellcheck="false" />
+          </label>
+        </div>
+      </section>
+
+      <section class="field-group">
+        <h3>Appearance</h3>
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">Theme</span>
+            <select id="s-theme" class="select">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="auto">Auto</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">Accent</span>
+            <input id="s-accent" type="color" class="color" />
+          </label>
+        </div>
+      </section>
+
+      <section class="field-group">
+        <h3>Engine</h3>
+        <label class="field">
+          <span class="field-label">Custom ffmpeg path <em class="soft">optional</em></span>
+          <input id="s-ffmpeg" type="text" class="text" spellcheck="false" placeholder="Leave empty to use bundled ffmpeg" />
+          <span class="field-help">Only needed if you want a specific ffmpeg build.</span>
+        </label>
+      </section>
+    </div>
+
+    <div class="drawer-foot">
+      <button id="btn-import-settings" class="pill">Import…</button>
+      <button id="btn-export-settings" class="pill">Export…</button>
+      <button id="btn-reset-settings" class="pill">Reset</button>
+      <span class="grow"></span>
+      <button id="btn-save-settings" class="pill pill-accent">Save</button>
+    </div>
+  </aside>
+
+  <!-- About dialog -->
+  <div id="about" class="modal-scrim" hidden>
+    <div class="modal glass">
+      <div class="about-mark">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2-7 4 14 3-9 2 2h4"/></svg>
+      </div>
+      <h2>Silence Cutter</h2>
+      <p id="about-version" class="soft">v0.1</p>
+      <p>Automatic dead-air detection &amp; cutting for streams and long recordings.</p>
+      <p class="soft">made by Domschii</p>
+      <button id="btn-close-about" class="pill pill-accent">Close</button>
+    </div>
+  </div>
+
+  <div id="toast-host" class="toast-host"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
