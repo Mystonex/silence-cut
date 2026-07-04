@@ -1,10 +1,12 @@
 <div align="center">
 
-# 🎬 Hushcut
+# 🎬 Silence Cut
 
 ### Automatic dead-air cutter for streams & long recordings
 
 *Point it at a video. It finds the silence. You keep the good parts.*
+
+<sub>a tool by **Domschii**</sub>
 
 <br>
 
@@ -23,7 +25,7 @@
 You stream. You record long takes. And between the good moments there are those
 awkward stretches where you're reading chat, thinking, or just *not talking*.
 
-**Hushcut** scans a video's audio, finds every quiet stretch below a loudness
+**Silence Cut** scans a video's audio, finds every quiet stretch below a loudness
 threshold you set (in **dB**), and lines up clean cuts — trimming the silence
 while leaving a little breathing room before and after. You review each cut on a
 waveform timeline, veto the ones you want to keep, then export a trimmed video
@@ -59,7 +61,7 @@ npm start        # launch the app
 
 | Command | What it does |
 | ------- | ------------ |
-| `npm start` | Launch Hushcut |
+| `npm start` | Launch Silence Cut |
 | `npm run dev` | Launch with DevTools attached |
 | `npm run check` | Syntax-check all source files |
 
@@ -90,10 +92,11 @@ download — they aren't used until v0.2.
 
 ## 🧩 Settings — the `.dom` file
 
-Config lives in [`settings/`](settings/) as **DOM** files.
+Config lives in [`settings/`](settings/) as **`.dom`** files.
 
-> **DOM = Dead-air Options Manifest** — it's JSON on the inside, just with a
-> friendlier extension. Open, diff, and hand-edit it in any text editor.
+> **Why `.dom`?** Because it's made by **Dom**schii. 😎 It's plain JSON on the
+> inside — open, diff, and hand-edit it in any text editor — it just wears the
+> creator's name as its extension.
 
 | File | Purpose |
 | ---- | ------- |
@@ -116,7 +119,7 @@ truly silent moments.
   "output": {
     "mode":         "both", // video · cutlist · both
     "format":       "mp4",  // mp4 · mkv · mov  (render in v0.2)
-    "suffix":       "_hushcut",
+    "suffix":       "_silencecut",
     "cutlistFormat":"json"  // json · edl
   },
   "app": {
@@ -156,8 +159,7 @@ video-cutting/
 ## 🔒 Security posture
 
 `contextIsolation` **on**, `nodeIntegration` **off**, `sandbox` **on**, a strict
-CSP, and a narrow `window.hushcut` bridge — the renderer never touches Node
-directly.
+CSP, and a narrow context-bridge — the renderer never touches Node directly.
 
 ---
 
@@ -173,7 +175,7 @@ directly.
 
 <div align="center">
 
-Made for streamers who talk a lot — and sometimes don't.
+Made by **Domschii** — for streamers who talk a lot, and sometimes don't.
 
 **MIT Licensed** · Built with Electron
 
