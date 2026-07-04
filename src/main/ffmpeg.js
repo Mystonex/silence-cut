@@ -214,18 +214,17 @@ function waveformRate(duration) {
   return Math.round(clamp(WAVE_TARGET_SAMPLES / duration, WAVE_MIN_RATE, WAVE_MAX_RATE));
 }
 
-// Reduce an Int16 mono PCM buffer to `buckets` peak values, then normalize for
-// display: the loudest bucket becomes 1.0 so the waveform fills the timeline
-// regardless of absolute recording level (silence stays ~0). A gentle gamma
-// lifts mid-level speech so it reads clearly. Detection is unaffected — this is
-// purely the visual envelope; silence is decided by silencedetect's dB test.
+// Reduce an Int16 mono PCM buffer to `buckets` ABSOLUTE peak values in [0, 1],
+// relative to full scale (32768). Absolute — not normalized to the loudest
+// bucket — so the renderer can map each value to a real dBFS level and draw it
+// against a fixed dB scale + threshold line. Detection is unaffected; this is
+// purely the visual envelope (silence is decided by silencedetect's dB test).
 function peaksFromPcm(buf, buckets) {
   const samples = Math.floor(buf.length / 2);
-  const raw = new Array(buckets).fill(0);
-  if (samples === 0) return raw;
+  const peaks = new Array(buckets).fill(0);
+  if (samples === 0) return peaks;
 
   const per = samples / buckets;
-  let loudest = 0;
   for (let b = 0; b < buckets; b++) {
     const start = Math.floor(b * per);
     // When the clip is shorter than `buckets` samples (per < 1), floor(b*per)
@@ -239,15 +238,9 @@ function peaksFromPcm(buf, buckets) {
       const v = Math.abs(buf.readInt16LE(i * 2));
       if (v > max) max = v;
     }
-    raw[b] = max / 32768;
-    if (max / 32768 > loudest) loudest = max / 32768;
+    peaks[b] = Number((max / 32768).toFixed(4));
   }
-
-  const gamma = 0.8;
-  return raw.map((p) => {
-    const norm = loudest > 0 ? p / loudest : 0;
-    return Number(Math.pow(norm, gamma).toFixed(4));
-  });
+  return peaks;
 }
 
 // Pair up silence_start / silence_end markers into [{start,end}] spans, clamped

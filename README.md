@@ -79,12 +79,13 @@ own build? Point **Settings → Engine → Custom ffmpeg path** at it.
 | 📂 | **Native menu bar** — File / Edit / View / Window / Help, with full keyboard shortcuts |
 | ⤵️ | **Import** three ways — title-bar button, **File → Import Video** (`⌘O`), or **drag & drop** onto the window |
 | 🔍 | **Real dead-air detection** — `Analyze` (`⌘R`) runs ffmpeg `silencedetect` over the actual audio at your dB threshold |
-| 🌊 | **Real waveform timeline** — decoded from the audio, with detected dead-air segments drawn right on the wave |
-| ✋ | **Review & approve** — click any red block (or its list row) to *keep* that moment instead of cutting it |
-| 📊 | **Live stats** — time removed and final runtime update as you drag the sliders |
+| 🌊 | **dBFS waveform + dB scale** — the wave is drawn against a real `−60…0 dB` axis, with a live **threshold line** so you can *see* which audio counts as silence and tune the threshold by eye |
+| 🎞️ | **Linked frame preview** — hover or scrub the timeline and a floating video-frame preview shows exactly where you are (with a timestamp) |
+| ✂️ | **Hand-editable cuts** — drag a cut's **edges to trim**, its **body to move**, **double-click** empty space to add one, and **⌫** or the ✕ to delete; what you see on the wave is exactly what gets removed |
+| ✋ | **Keep / cut toggle** — flip any detected block to *keep* without deleting it |
+| 📊 | **Live stats** — time removed and final runtime update as you drag cuts or the sliders |
 | 🎬 | **Export trimmed video** — frame-accurate re-encode (trim + concat) with a live progress bar you can cancel |
 | 💾 | **Export cut list** — a non-destructive JSON EDL of the exact regions removed |
-| 🎚️ | **Settings drawer** — padding, min-silence, min-keep and threshold all feed the same cut planner |
 | 🗂️ | **Portable settings** — import / export / reset config as `.dom` files |
 
 ---
@@ -169,8 +170,11 @@ CSP, and a narrow context-bridge — the renderer never touches Node directly.
 - [x] **v0.1** — glassy UI shell, native menus, `.dom` settings, live timeline
 - [x] Real ffmpeg `silencedetect` analysis + real waveform from decoded audio
 - [x] Frame-accurate trimmed-video render with cancelable progress
-- [ ] Per-segment nudge handles
+- [x] dBFS waveform with dB scale + live threshold line
+- [x] Linked video-frame preview on hover/scrub
+- [x] Draggable, hand-editable cut regions (resize · move · add · delete)
 - [ ] Keyframe-based fast (stream-copy) cutting mode
+- [ ] Playback of the trimmed result in-app
 - [ ] Batch / folder processing
 
 ---

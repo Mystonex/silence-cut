@@ -373,6 +373,14 @@ function registerIpc() {
     return { canceled: true };
   });
 
+  // Absolute path → file:// URL for the renderer's <video> preview element.
+  ipcMain.handle('media:fileurl', (_e, filePath) => {
+    try {
+      if (filePath && fs.existsSync(filePath)) return require('url').pathToFileURL(filePath).href;
+    } catch { /* fall through */ }
+    return '';
+  });
+
   // Reveal an exported file in Finder/Explorer.
   ipcMain.handle('shell:reveal', (_e, filePath) => {
     if (filePath && fs.existsSync(filePath)) { shell.showItemInFolder(filePath); return { ok: true }; }

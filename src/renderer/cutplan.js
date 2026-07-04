@@ -39,28 +39,43 @@
   }
 
   /**
-   * @param cutSegs  [{start,end}] silence spans the user has marked to cut
-   * @param det      detection settings { leadInSec, leadOutSec, minKeepSec }
+   * Turn raw detected silence spans into concrete cut regions by baking in the
+   * lead-in / lead-out padding (breathing room kept around speech). Done once at
+   * Analyze time so the blocks the user then drags ARE the exact removed regions
+   * — dragging an edge moves the cut 1:1 with no hidden offset.
+   * @param silences [{start,end}] raw silence spans from detection
+   * @param det      { leadInSec, leadOutSec }
    * @param dur      media duration (seconds)
-   * @returns { removed, keep, removedTotal, keepTotal, dur }
+   * @returns [{start,end}] cut regions (empties dropped)
    */
-  function planCuts(cutSegs, det, dur) {
+  function deriveCuts(silences, det, dur) {
     const leadIn = Number(det.leadInSec) || 0;
     const leadOut = Number(det.leadOutSec) || 0;
-    const minKeep = Number(det.minKeepSec) || 0;
-
-    // Shrink each silence by the padding kept around speech, then clamp + merge.
-    let removed = cutSegs
-      .map((s) => ({ start: s.start + leadOut, end: s.end - leadIn }))
-      .filter((r) => r.end - r.start > 1e-3)
-      .map((r) => ({ start: clamp(r.start, 0, dur), end: clamp(r.end, 0, dur) }))
+    return (silences || [])
+      .map((s) => ({ start: clamp(s.start + leadOut, 0, dur), end: clamp(s.end - leadIn, 0, dur) }))
       .filter((r) => r.end - r.start > 1e-3);
-    removed = mergeRanges(removed);
+  }
+
+  /**
+   * Plan removed / kept regions from already-concrete cut regions (no padding —
+   * padding is already baked in by deriveCuts or drawn by hand). Merges
+   * overlaps, computes the kept complement, and drops kept slivers below
+   * minKeepSec (which merges their neighbouring cuts).
+   * @param cuts       [{start,end}] concrete cut regions to remove
+   * @param minKeepSec smallest kept clip worth keeping
+   * @param dur        media duration (seconds)
+   * @returns { removed, keep, removedTotal, keepTotal, dur }
+   */
+  function planFromCuts(cuts, minKeepSec, dur) {
+    const minKeep = Number(minKeepSec) || 0;
+    let removed = mergeRanges(
+      (cuts || [])
+        .map((c) => ({ start: clamp(c.start, 0, dur), end: clamp(c.end, 0, dur) }))
+        .filter((r) => r.end - r.start > 1e-3)
+    );
 
     let keep = complement(removed, dur);
 
-    // A kept clip shorter than minKeep isn't worth keeping — drop it, which
-    // merges its neighbouring cuts. Only recompute removals if we dropped one.
     if (minKeep > 0) {
       const filtered = keep.filter((k) => (k.end - k.start) >= minKeep);
       if (filtered.length !== keep.length) {
@@ -74,5 +89,16 @@
     return { removed, keep, removedTotal, keepTotal, dur };
   }
 
-  return { clamp, mergeRanges, complement, planCuts };
+  /**
+   * Convenience: derive cuts from raw silences (with padding) and plan in one
+   * step. Kept for callers/tests that go straight from detection to a plan.
+   * @param silences [{start,end}] raw silence spans
+   * @param det      { leadInSec, leadOutSec, minKeepSec }
+   * @param dur      media duration
+   */
+  function planCuts(silences, det, dur) {
+    return planFromCuts(deriveCuts(silences, det, dur), det && det.minKeepSec, dur);
+  }
+
+  return { clamp, mergeRanges, complement, deriveCuts, planFromCuts, planCuts };
 });

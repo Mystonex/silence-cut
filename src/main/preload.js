@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('silenceCutter', {
   importVideo: () => ipcRenderer.invoke('video:import'),
   runAnalysis: (payload) => ipcRenderer.invoke('analysis:run', payload),
   cancelJob: () => ipcRenderer.invoke('job:cancel'),
+  // Absolute path → file:// URL the <video> preview element can load.
+  toFileUrl: (filePath) => ipcRenderer.invoke('media:fileurl', filePath),
 
   // Progress for the running analysis/render job. Returns an unsubscribe fn.
   onJobProgress: (cb) => {

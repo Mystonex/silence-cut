@@ -23,6 +23,11 @@
   --cut-soft: rgba(255, 93, 115, 0.16);
   --keep: #59e6a3;
 
+  /* Waveform panel + canvas-drawn colors (theme-aware). */
+  --wave-panel: rgba(0, 0, 0, 0.28);
+  --wave-grid: rgba(255, 255, 255, 0.05);
+  --wave-muted: rgba(150, 160, 185, 0.32);
+
   --radius: 16px;
   --radius-sm: 10px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -39,6 +44,9 @@ body.theme-light {
   --glass-border: rgba(20, 25, 40, 0.1);
   --glass-border-hi: rgba(20, 25, 40, 0.18);
   --shadow: 0 20px 50px rgba(40, 55, 90, 0.18);
+  --wave-panel: rgba(255, 255, 255, 0.4);
+  --wave-grid: rgba(20, 25, 40, 0.1);
+  --wave-muted: rgba(90, 100, 125, 0.42);
 }
 
 * { box-sizing: border-box; }
@@ -191,7 +199,7 @@ body.theme-light .pill-accent { color: #06222b; }
 #stat-result { color: var(--keep); }
 
 /* ---- Timeline ---------------------------------------------------- */
-.timeline-card { padding: 16px 18px 12px; }
+.timeline-card { padding: 16px 18px 12px; position: relative; }
 .timeline-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .tl-title { font-size: 13px; font-weight: 600; color: var(--text-dim); }
 .tl-legend { display: flex; align-items: center; gap: 12px; font-size: 11.5px; }
@@ -201,35 +209,110 @@ body.theme-light .pill-accent { color: #06222b; }
 .lg-cut::before { background: var(--cut); }
 .tl-hint { color: var(--text-faint); }
 
-.timeline {
-  position: relative; height: 132px; border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.28); overflow: hidden;
-  border: 1px solid var(--glass-border);
+.timeline-body { display: flex; align-items: stretch; gap: 8px; }
+
+/* ---- dB scale gutter --------------------------------------------- */
+.db-scale { position: relative; flex: 0 0 44px; width: 44px; height: 132px; }
+.db-tick {
+  position: absolute; right: 5px; transform: translateY(-50%);
+  font-size: 9.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
+
+.timeline {
+  position: relative; flex: 1 1 auto; height: 132px; border-radius: var(--radius-sm);
+  background: var(--wave-panel); overflow: hidden;
+  border: 1px solid var(--glass-border); outline: none;
+}
+.timeline:focus-visible { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-soft); }
 .waveform { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .seg-layer { position: absolute; inset: 0; }
 
+/* ---- threshold line ---------------------------------------------- */
+.threshold-line {
+  position: absolute; left: 0; right: 0; height: 0; z-index: 3; pointer-events: none;
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 75%, transparent);
+}
+.threshold-tag {
+  position: absolute; right: 4px; top: -8px; font-size: 9px; font-weight: 600;
+  color: var(--accent); background: rgba(0, 0, 0, 0.45); padding: 1px 5px; border-radius: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- cut segments (draggable) ------------------------------------ */
 .seg {
-  position: absolute; top: 0; bottom: 0;
+  position: absolute; top: 0; bottom: 0; box-sizing: border-box;
   background: var(--cut-soft);
   border-left: 1.5px solid var(--cut); border-right: 1.5px solid var(--cut);
-  cursor: pointer; transition: background 0.15s var(--ease);
+  cursor: grab; transition: background 0.12s var(--ease);
 }
 .seg::after {
-  content: ""; position: absolute; inset: 0;
+  content: ""; position: absolute; inset: 0; pointer-events: none;
   background: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(255, 93, 115, 0.14) 6px, rgba(255, 93, 115, 0.14) 12px);
 }
-.seg:hover { background: rgba(255, 93, 115, 0.28); }
-.seg.kept {
-  background: rgba(89, 230, 163, 0.1);
-  border-color: var(--keep);
-}
+.seg:hover { background: rgba(255, 93, 115, 0.24); }
+.seg.dragging { cursor: grabbing; background: rgba(255, 93, 115, 0.3); z-index: 5; }
+.seg.selected { box-shadow: inset 0 0 0 1px var(--accent), 0 0 10px var(--accent-line); }
+.seg.kept { background: rgba(89, 230, 163, 0.1); border-color: var(--keep); }
 .seg.kept::after { background: none; }
 .seg.kept:hover { background: rgba(89, 230, 163, 0.2); }
 
-.playhead { position: absolute; top: 0; bottom: 0; width: 1.5px; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.seg-handle {
+  position: absolute; top: 0; bottom: 0; width: 9px; z-index: 4; cursor: ew-resize;
+}
+.seg-handle.left { left: -5px; }
+.seg-handle.right { right: -5px; }
+.seg-handle::before {
+  content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 2px; height: 26px; border-radius: 2px; background: var(--cut); opacity: 0;
+  transition: opacity 0.12s var(--ease);
+}
+.seg:hover .seg-handle::before, .seg.dragging .seg-handle::before { opacity: 0.85; }
+.seg.kept .seg-handle::before { background: var(--keep); }
 
-.ruler { position: relative; height: 18px; margin-top: 4px; }
+.seg-del {
+  position: absolute; top: 3px; right: 3px; z-index: 6; width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  border: none; border-radius: 5px; cursor: pointer; opacity: 0;
+  color: #fff; background: rgba(0, 0, 0, 0.5); line-height: 1;
+  transition: opacity 0.12s var(--ease), background 0.12s var(--ease);
+}
+.seg:hover .seg-del { opacity: 1; }
+.seg-del:hover { background: var(--cut); }
+
+.seg-label {
+  position: absolute; bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%);
+  z-index: 7; white-space: nowrap; pointer-events: none; opacity: 0;
+  font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--text);
+  background: var(--glass-strong); border: 1px solid var(--glass-border-hi);
+  padding: 3px 7px; border-radius: 7px; box-shadow: var(--shadow);
+  transition: opacity 0.1s var(--ease);
+}
+.seg.dragging .seg-label, .seg:hover .seg-label { opacity: 1; }
+
+.scrub { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(201, 211, 230, 0.4); z-index: 2; pointer-events: none; }
+.playhead { position: absolute; top: 0; bottom: 0; width: 1.5px; background: var(--accent); box-shadow: 0 0 8px var(--accent); z-index: 3; pointer-events: none; }
+
+/* ---- video preview bubble ---------------------------------------- */
+.preview {
+  position: fixed; z-index: 80; width: 224px; pointer-events: none;
+  border-radius: 10px; overflow: hidden; background: #000;
+  border: 1px solid var(--glass-border-hi); box-shadow: var(--shadow);
+}
+.preview-video { display: block; width: 100%; height: auto; max-height: 150px; object-fit: contain; background: #000; }
+.preview-time {
+  position: absolute; left: 0; right: 0; bottom: 0; text-align: center;
+  font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: #fff;
+  padding: 3px 0 4px; background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
+}
+/* Codec the <video> can't decode → compact timestamp-only pill. */
+.preview.unsupported { width: auto; background: var(--glass-strong); border-color: var(--glass-border-hi); }
+.preview.unsupported .preview-video { display: none; }
+.preview.unsupported .preview-time { position: static; padding: 7px 12px; background: none; color: var(--text); white-space: nowrap; }
+
+/* ---- ruler (offset to line up under the plot, not the gutter) ---- */
+.ruler-row { display: flex; align-items: flex-start; gap: 8px; }
+.ruler-spacer { flex: 0 0 44px; width: 44px; }
+.ruler { position: relative; flex: 1 1 auto; height: 18px; margin-top: 4px; }
 .tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 10px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .tick::before { content: ""; position: absolute; top: -4px; left: 50%; width: 1px; height: 4px; background: var(--glass-border); }
 
@@ -252,12 +335,20 @@ body.theme-light .pill-accent { color: #06222b; }
 .seg-item .grow { flex: 1 1 auto; }
 .seg-item .tag { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--cut); }
 .seg-item.kept .tag { color: var(--keep); }
+.seg-item { cursor: pointer; }
+.seg-item.sel { border-color: var(--accent-line); box-shadow: inset 0 0 0 1px var(--accent-soft); }
 .seg-item .toggle {
   font-size: 11.5px; padding: 4px 11px; border-radius: 999px; cursor: pointer;
   color: var(--text-dim); background: var(--glass); border: 1px solid var(--glass-border);
   transition: all 0.15s var(--ease);
 }
 .seg-item .toggle:hover { color: var(--text); background: var(--glass-strong); }
+.seg-item .row-del {
+  font-size: 11px; width: 24px; height: 24px; padding: 0; border-radius: 7px; cursor: pointer;
+  color: var(--text-faint); background: transparent; border: 1px solid transparent;
+  transition: all 0.15s var(--ease); flex: 0 0 auto;
+}
+.seg-item .row-del:hover { color: #fff; background: var(--cut); border-color: var(--cut); }
 
 /* ---- Status bar -------------------------------------------------- */
 .statusbar {
