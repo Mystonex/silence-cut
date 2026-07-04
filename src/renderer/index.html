@@ -225,8 +225,22 @@
     </div>
   </div>
 
+  <!-- Progress overlay (analysis + render) -->
+  <div id="progress" class="modal-scrim" hidden>
+    <div class="modal glass progress-card">
+      <div class="progress-title" id="progress-title">Working…</div>
+      <div class="progress-sub soft" id="progress-sub"></div>
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-meta">
+        <span class="progress-pct" id="progress-pct">0%</span>
+        <button id="btn-cancel-job" class="pill">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast-host" class="toast-host"></div>
 
+  <script src="cutplan.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

@@ -58,12 +58,20 @@ function toast(message, kind = '') {
 
 function setStatus(text) { $('#status').textContent = text; }
 
-/* Effective removed region inside a silence, after lead-in/out padding. */
-function removedRange(seg) {
-  const d = state.settings.detection;
-  const start = seg.start + d.leadOutSec;
-  const end = seg.end - d.leadInSec;
-  return { start, end, dur: Math.max(0, end - start) };
+function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
+
+/* ------------------------------------------------------------------ */
+/*  Cut planning — the single source of truth                          */
+/*                                                                     */
+/*  The math lives in cutplan.js (window.CutPlan) so the exact same    */
+/*  planning drives the on-screen stats, the exported cut list, and    */
+/*  the rendered video — the preview the user approves is what ships.  */
+/* ------------------------------------------------------------------ */
+
+function computePlan() {
+  const a = state.analysis;
+  if (!a) return { removed: [], keep: [], removedTotal: 0, keepTotal: 0, dur: 0 };
+  return CutPlan.planCuts(cutSegments(), state.settings.detection, a.duration);
 }
 
 /* ------------------------------------------------------------------ */
@@ -171,28 +179,53 @@ async function importVideo() {
 }
 
 async function analyze() {
+  if (progressActive) return; // a job is already running (guards menu ⌘R re-trigger)
   if (!state.video) { toast('Import a video first.'); return; }
   setStatus('Analyzing audio for dead air…');
   $('#btn-analyze').disabled = true;
+  showProgress('Analyzing audio…', state.video.name, 'analyze');
   try {
     const result = await api.runAnalysis({ videoPath: state.video.path, settings: state.settings });
+    if (result && result.busy) { setStatus('Another job is already running.'); return; }
+    if (!result || result.canceled) {
+      setStatus('Analysis canceled.');
+      toast('Analysis canceled');
+      return;
+    }
     state.analysis = result;
+
+    if (result.hasAudio === false) {
+      $('#file-sub').textContent = [
+        state.video.ext ? state.video.ext.toUpperCase() : '',
+        fmtBytes(state.video.size),
+        fmtTime(result.duration),
+        'no audio track',
+      ].filter(Boolean).join('  ·  ');
+      renderAll();
+      $('#btn-export-cutlist').disabled = true;
+      $('#btn-export-video').disabled = true;
+      setStatus('No audio track in this file — nothing to detect.');
+      toast('No audio track found in this file.', 'err');
+      return;
+    }
+
     $('#file-sub').textContent = [
       state.video.ext ? state.video.ext.toUpperCase() : '',
       fmtBytes(state.video.size),
       fmtTime(result.duration),
-      result.mocked ? 'demo analysis' : '',
+      `${result.thresholdDb} dB`,
     ].filter(Boolean).join('  ·  ');
     renderAll();
     $('#btn-export-cutlist').disabled = false;
     $('#btn-export-video').disabled = false;
     const n = result.segments.length;
     setStatus(`Found ${n} dead ${n === 1 ? 'spot' : 'spots'} at ${result.thresholdDb} dB.`);
-    toast(`${n} dead ${n === 1 ? 'spot' : 'spots'} detected`, 'ok');
+    toast(`${n} dead ${n === 1 ? 'spot' : 'spots'} detected`, n ? 'ok' : '');
   } catch (err) {
     setStatus('Analysis failed.');
     toast(`Analysis failed: ${err.message}`, 'err');
   } finally {
+    hideProgress();
     $('#btn-analyze').disabled = false;
   }
 }
@@ -213,10 +246,10 @@ function renderStats() {
     $('#stat-result').textContent = fmtTime(0);
     return;
   }
-  const removed = cutSegments().reduce((sum, s) => sum + removedRange(s).dur, 0);
+  const plan = computePlan();
   $('#stat-cuts').textContent = String(cutSegments().length);
-  $('#stat-removed').textContent = fmtTime(removed);
-  $('#stat-result').textContent = fmtTime(a.duration - removed);
+  $('#stat-removed').textContent = fmtTime(plan.removedTotal);
+  $('#stat-result').textContent = fmtTime(a.duration - plan.removedTotal);
 }
 
 const canvas = $('#waveform');
@@ -404,10 +437,12 @@ async function exportSettings() {
 
 async function exportCutlist() {
   if (!state.analysis) { toast('Analyze a video first.'); return; }
-  const cuts = cutSegments().map((s) => {
-    const r = removedRange(s);
-    return { start: Number(r.start.toFixed(3)), end: Number(r.end.toFixed(3)), duration: Number(r.dur.toFixed(3)) };
-  }).filter((c) => c.duration > 0);
+  const plan = computePlan();
+  const cuts = plan.removed.map((r) => ({
+    start: Number(r.start.toFixed(3)),
+    end: Number(r.end.toFixed(3)),
+    duration: Number((r.end - r.start).toFixed(3)),
+  }));
 
   const res = await api.exportCutlist({
     videoPath: state.video.path,
@@ -423,11 +458,38 @@ async function exportCutlist() {
 }
 
 async function exportVideo() {
+  if (progressActive) return; // a job is already running (guards menu ⌘E re-trigger)
   if (!state.analysis) { toast('Analyze a video first.'); return; }
-  const res = await api.exportVideo({ videoPath: state.video.path, settings: state.settings });
-  if (res?.notImplemented) {
-    toast(res.message, '');
-    setStatus(res.message);
+  if (state.analysis.hasAudio === false) { toast('No audio track — nothing to trim.', 'err'); return; }
+
+  const plan = computePlan();
+  if (plan.keep.length === 0) { toast('Everything is marked as a cut — nothing to keep.', 'err'); return; }
+
+  showProgress('Rendering trimmed video…', 'Encoding with ffmpeg — this can take a while.', 'render');
+  setStatus('Rendering trimmed video…');
+  try {
+    const res = await api.exportVideo({
+      videoPath: state.video.path,
+      videoName: state.video.name,
+      duration: state.analysis.duration,
+      hasAudio: state.analysis.hasAudio,
+      keep: plan.keep.map((r) => ({ start: Number(r.start.toFixed(3)), end: Number(r.end.toFixed(3)) })),
+      settings: state.settings,
+    });
+    if (!res || res.canceled) {
+      setStatus(res && res.reason === 'canceled' ? 'Render canceled.' : 'Ready.');
+      if (res && res.reason === 'canceled') toast('Render canceled');
+      return;
+    }
+    if (res.error) { toast(res.error, 'err'); setStatus('Render failed.'); return; }
+    toast('Trimmed video saved', 'ok');
+    setStatus(`Exported trimmed video → ${res.path}`);
+    api.revealPath(res.path);
+  } catch (err) {
+    setStatus('Render failed.');
+    toast(`Render failed: ${err.message}`, 'err');
+  } finally {
+    hideProgress();
   }
 }
 
@@ -479,6 +541,44 @@ async function showAbout() {
 function hideAbout() { $('#about').hidden = true; }
 
 /* ------------------------------------------------------------------ */
+/*  Progress overlay (analysis + render)                              */
+/* ------------------------------------------------------------------ */
+
+let progressActive = false;
+let progressPhase = null;
+
+function showProgress(title, sub, phase) {
+  progressActive = true;
+  progressPhase = phase || null;
+  $('#progress-title').textContent = title;
+  $('#progress-sub').textContent = sub || '';
+  $('#btn-cancel-job').disabled = false;
+  $('#btn-cancel-job').textContent = 'Cancel';
+  $('#progress').classList.remove('indeterminate');
+  setProgress(0);
+  $('#progress').hidden = false;
+}
+
+function setProgress(ratio) {
+  const pct = Math.round(clamp(ratio, 0, 1) * 100);
+  $('#progress-fill').style.width = `${pct}%`;
+  $('#progress-pct').textContent = `${pct}%`;
+}
+
+function hideProgress() {
+  progressActive = false;
+  $('#progress').hidden = true;
+}
+
+async function cancelJob() {
+  if (!progressActive) return;
+  $('#btn-cancel-job').disabled = true;
+  $('#btn-cancel-job').textContent = 'Canceling…';
+  $('#progress-title').textContent = 'Canceling…';
+  try { await api.cancelJob(); } catch { /* ignore */ }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Wiring                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -505,6 +605,15 @@ function wireEvents() {
   // Dismiss the About modal by clicking its backdrop (not the card itself).
   $('#about').addEventListener('click', (e) => { if (e.target === $('#about')) hideAbout(); });
 
+  $('#btn-cancel-job').addEventListener('click', cancelJob);
+  // Live progress from the running analysis / render job. Ignore stray events
+  // whose phase doesn't match the overlay currently shown.
+  api.onJobProgress((p) => {
+    if (!progressActive || !p || typeof p.ratio !== 'number') return;
+    if (progressPhase && p.phase && p.phase !== progressPhase) return;
+    setProgress(p.ratio);
+  });
+
   // Any settings control updates the live preview.
   $$('.drawer-body input, .drawer-body select').forEach((el) =>
     el.addEventListener('input', onFormInput)
@@ -517,10 +626,11 @@ function wireEvents() {
     resizeRaf = requestAnimationFrame(() => { if (state.analysis) { drawWaveform(); } });
   });
 
-  // Keyboard: Esc closes drawer / about.
+  // Keyboard: Esc cancels a running job, else closes drawer / about.
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      if (!$('#about').hidden) hideAbout();
+      if (progressActive) cancelJob();
+      else if (!$('#about').hidden) hideAbout();
       else if ($('#settings-drawer').classList.contains('open')) closeSettings();
     }
   });

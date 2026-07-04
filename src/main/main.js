@@ -4,6 +4,7 @@ const { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeTheme } = requir
 const path = require('path');
 const fs = require('fs');
 const settings = require('./settings');
+const engine = require('./ffmpeg');
 
 const isMac = process.platform === 'darwin';
 const VIDEO_EXTENSIONS = ['mp4', 'mkv', 'mov', 'webm', 'avi', 'm4v', 'flv', 'ts', 'wmv'];
@@ -40,6 +41,8 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  // Closing the window (or quitting) must not orphan a running ffmpeg child.
+  mainWindow.on('close', abortActiveJob);
   mainWindow.on('closed', () => { mainWindow = null; });
 
   // Open external links in the OS browser, never in-app.
@@ -130,69 +133,66 @@ function buildMenu() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Mock analysis engine (real ffmpeg pipeline lands in v0.2)         */
+/*  Job management (analysis / render share one cancelable slot)       */
 /* ------------------------------------------------------------------ */
 
-function hashString(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
+// Only one heavy ffmpeg job runs at a time (the UI is single-video). We reject a
+// second job rather than aborting the first: silently superseding an in-flight
+// render could delete its output and report a phantom "canceled". Explicit
+// cancel (job:cancel) and teardown (window close / quit) are the only aborts.
+let activeJob = null; // { kind, controller }
+
+function beginJob(kind) {
+  const controller = new AbortController();
+  activeJob = { kind, controller };
+  return activeJob;
 }
 
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function () {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+function endJob(job) {
+  if (activeJob === job) activeJob = null;
 }
 
-// Produces believable, deterministic dead-air segments + a waveform so the
-// timeline looks alive. Swapped for real ffmpeg silencedetect output in v0.2.
-function mockAnalyze(videoPath, config) {
-  const rnd = mulberry32(hashString(videoPath || 'demo-reel'));
-  const duration = 180 + Math.floor(rnd() * 660); // 3–14 min
-  const minSil = config?.detection?.minSilenceSec ?? 1.5;
+function abortActiveJob() {
+  if (activeJob) { try { activeJob.controller.abort(); } catch { /* ignore */ } }
+}
 
-  const segments = [];
-  let t = 4 + rnd() * 12;
-  let id = 0;
-  while (t < duration - 8) {
-    t += 6 + rnd() * 42; // a stretch of talking
-    if (t >= duration - 8) break;
-    const silence = minSil + rnd() * (minSil * 3 + 3);
-    segments.push({
-      id: id++,
-      start: Number(t.toFixed(2)),
-      end: Number(Math.min(duration - 1, t + silence).toFixed(2)),
-      cut: true,
-    });
-    t += silence;
-  }
-
-  const N = 1400;
-  const peaks = new Array(N);
-  for (let i = 0; i < N; i++) {
-    const time = (i / N) * duration;
-    const inSilence = segments.some((s) => time >= s.start && time <= s.end);
-    const amp = inSilence ? 0.02 + rnd() * 0.05 : 0.2 + rnd() * 0.78;
-    peaks[i] = Number(Math.min(1, amp).toFixed(3));
-  }
-
-  return {
-    mocked: true,
-    videoPath,
-    duration,
-    thresholdDb: config?.detection?.thresholdDb ?? -30,
-    segments,
-    peaks,
-    generatedAt: new Date().toISOString(),
+// True when `a` and `b` name the same file on disk. Guards against rendering a
+// video onto its own source. Uses dev+inode when both exist (authoritative
+// across symlinks/case), else canonicalizes and compares case-insensitively on
+// the platforms whose default filesystems are case-insensitive.
+function isSameFile(a, b) {
+  try {
+    const sa = fs.statSync(a);
+    const sb = fs.statSync(b);
+    return sa.dev === sb.dev && sa.ino === sb.ino;
+  } catch { /* the output usually doesn't exist yet — fall through */ }
+  const canon = (p) => {
+    try { return path.join(fs.realpathSync(path.dirname(p)), path.basename(p)); }
+    catch { return path.resolve(p); }
   };
+  let ca = canon(a);
+  let cb = canon(b);
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    ca = ca.toLowerCase();
+    cb = cb.toLowerCase();
+  }
+  return ca === cb;
+}
+
+function sendProgress(phase, ratio, extra) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('job:progress', { phase, ratio, ...(extra || {}) });
+  }
+}
+
+function isCancel(err) {
+  return err && (err.message === 'Canceled' || err.name === 'AbortError');
+}
+
+// Engine options derived from the current settings object.
+function engineOpts(s) {
+  const ffmpegPath = s && s.app && typeof s.app.ffmpegPath === 'string' ? s.app.ffmpegPath.trim() : '';
+  return { ffmpegPath: ffmpegPath || undefined };
 }
 
 /* ------------------------------------------------------------------ */
@@ -258,9 +258,32 @@ function registerIpc() {
     return { canceled: false, path: p, name: path.basename(p), ext: path.extname(p).slice(1).toLowerCase(), size };
   });
 
-  ipcMain.handle('analysis:run', (_e, payload) => {
+  ipcMain.handle('analysis:run', async (_e, payload) => {
     const videoPath = payload?.videoPath || '';
-    return mockAnalyze(videoPath, payload?.settings);
+    if (!videoPath) throw new Error('No video to analyze.');
+    if (activeJob) return { busy: true };
+
+    const s = payload?.settings || settings.load();
+    const det = s.detection || {};
+    const job = beginJob('analyze');
+    try {
+      const result = await engine.analyze(
+        videoPath,
+        {
+          thresholdDb: det.thresholdDb,
+          minSilenceSec: det.minSilenceSec,
+          ...engineOpts(s),
+        },
+        (ratio) => sendProgress('analyze', ratio),
+        job.controller.signal,
+      );
+      return result;
+    } catch (err) {
+      if (isCancel(err)) return { canceled: true };
+      throw new Error(err.message || 'Analysis failed.');
+    } finally {
+      endJob(job);
+    }
   });
 
   // Export -----------------------------------------------------------
@@ -291,11 +314,70 @@ function registerIpc() {
     }
   });
 
-  // The real render is v0.2 — the UI wiring is here and ready.
-  ipcMain.handle('export:video', () => ({
-    notImplemented: true,
-    message: 'Video rendering arrives in v0.2 (ffmpeg pipeline). Cut list export works today.',
-  }));
+  ipcMain.handle('export:video', async (_e, payload) => {
+    const videoPath = payload?.videoPath;
+    const keep = Array.isArray(payload?.keep) ? payload.keep : [];
+    if (!videoPath) return { error: 'No source video to render.' };
+    if (keep.length === 0) return { error: 'Nothing to render — every part is marked as a cut.' };
+    if (activeJob) return { error: 'Another job is already running. Wait for it to finish or cancel it.' };
+
+    const s = payload?.settings || settings.load();
+    const format = (s.output && s.output.format) || 'mp4';
+    const suffix = (s.output && typeof s.output.suffix === 'string') ? s.output.suffix : '_silencecut';
+    const base = payload?.videoName
+      ? payload.videoName.replace(/\.[^.]+$/, '')
+      : path.basename(videoPath).replace(/\.[^.]+$/, '');
+    const defaultPath = path.join(path.dirname(videoPath), `${base}${suffix}.${format}`);
+
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Trimmed Video',
+      defaultPath,
+      filters: [{ name: `${format.toUpperCase()} Video`, extensions: [format] }],
+    });
+    if (canceled || !filePath) return { canceled: true };
+
+    // Guard against overwriting the source in place (case-insensitive FS aware).
+    if (isSameFile(filePath, videoPath)) {
+      return { error: 'Choose a different filename — that would overwrite the source video.' };
+    }
+
+    const job = beginJob('render');
+    try {
+      sendProgress('render', 0);
+      const res = await engine.renderCut(
+        videoPath,
+        keep,
+        filePath,
+        {
+          hasAudio: payload?.hasAudio !== false,
+          duration: payload?.duration,
+          ...engineOpts(s),
+        },
+        (ratio) => sendProgress('render', ratio),
+        job.controller.signal,
+      );
+      return { canceled: false, path: res.path, keptRanges: res.keptRanges, keptDuration: res.keptDuration };
+    } catch (err) {
+      // Clean up a partial output file on failure/cancel.
+      try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch { /* ignore */ }
+      if (isCancel(err)) return { canceled: true, reason: 'canceled' };
+      return { error: err.message || 'Rendering failed.' };
+    } finally {
+      endJob(job);
+    }
+  });
+
+  // Cancel whatever ffmpeg job is currently running.
+  ipcMain.handle('job:cancel', () => {
+    abortActiveJob();
+    return { canceled: true };
+  });
+
+  // Reveal an exported file in Finder/Explorer.
+  ipcMain.handle('shell:reveal', (_e, filePath) => {
+    if (filePath && fs.existsSync(filePath)) { shell.showItemInFolder(filePath); return { ok: true }; }
+    return { ok: false };
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -312,6 +394,9 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+// Never let a spawned ffmpeg child outlive the app.
+app.on('before-quit', abortActiveJob);
 
 app.on('window-all-closed', () => {
   if (!isMac) app.quit();

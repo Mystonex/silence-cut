@@ -24,10 +24,19 @@ contextBridge.exposeInMainWorld('silenceCutter', {
   // --- media / analysis ---
   importVideo: () => ipcRenderer.invoke('video:import'),
   runAnalysis: (payload) => ipcRenderer.invoke('analysis:run', payload),
+  cancelJob: () => ipcRenderer.invoke('job:cancel'),
+
+  // Progress for the running analysis/render job. Returns an unsubscribe fn.
+  onJobProgress: (cb) => {
+    const listener = (_event, payload) => cb(payload);
+    ipcRenderer.on('job:progress', listener);
+    return () => ipcRenderer.removeListener('job:progress', listener);
+  },
 
   // --- export ---
   exportCutlist: (payload) => ipcRenderer.invoke('export:cutlist', payload),
   exportVideo: (payload) => ipcRenderer.invoke('export:video', payload),
+  revealPath: (filePath) => ipcRenderer.invoke('shell:reveal', filePath),
 
   // --- app info ---
   getAppInfo: () => ipcRenderer.invoke('app:info'),

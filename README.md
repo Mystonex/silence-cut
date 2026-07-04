@@ -11,7 +11,7 @@
 <br>
 
 ![version](https://img.shields.io/badge/version-0.1.0-6ee7ff?style=for-the-badge)
-![status](https://img.shields.io/badge/status-UI_shell-a78bfa?style=for-the-badge)
+![status](https://img.shields.io/badge/status-working-59e6a3?style=for-the-badge)
 ![electron](https://img.shields.io/badge/Electron-32-47848F?style=for-the-badge&logo=electron&logoColor=white)
 ![node](https://img.shields.io/badge/Node-18%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
 ![license](https://img.shields.io/badge/license-MIT-ffffff?style=for-the-badge)
@@ -44,11 +44,11 @@ and/or a non-destructive cut list.
 </div>
 
 > [!NOTE]
-> **This is `v0.1` — the UI shell.** The interface, menus, live timeline
-> preview, and `.dom` settings are fully wired. Detection currently runs on a
-> **mock** analysis engine so you can see and feel the entire flow end-to-end.
-> The real ffmpeg `silencedetect` pipeline and video rendering land in **v0.2** —
-> the plumbing is already in place.
+> **`v0.1` — end-to-end working.** Import a video, run **real** ffmpeg
+> `silencedetect` analysis over the actual audio, review the detected dead air on
+> a real waveform, then export a non-destructive cut list **and/or** a rendered,
+> frame-accurate trimmed video. ffmpeg / ffprobe ship bundled — no separate
+> install needed.
 
 ---
 
@@ -65,9 +65,9 @@ npm start        # launch the app
 | `npm run dev` | Launch with DevTools attached |
 | `npm run check` | Syntax-check all source files |
 
-**Requirements:** Node **18+** and npm. `ffmpeg` / `ffprobe` are declared as
-*optional* dependencies, so v0.1 installs cleanly even if the binaries fail to
-download — they aren't used until v0.2.
+**Requirements:** Node **18+** and npm. `ffmpeg-static` / `ffprobe-static` are
+pulled in on install and power analysis + rendering out of the box. Prefer your
+own build? Point **Settings → Engine → Custom ffmpeg path** at it.
 
 ---
 
@@ -78,15 +78,14 @@ download — they aren't used until v0.2.
 | 🪟 | **Glassy Electron UI** — macOS window vibrancy, a custom draggable title bar, and an in-window action row |
 | 📂 | **Native menu bar** — File / Edit / View / Window / Help, with full keyboard shortcuts |
 | ⤵️ | **Import** three ways — title-bar button, **File → Import Video** (`⌘O`), or **drag & drop** onto the window |
-| 🌊 | **Waveform timeline** — `Analyze` (`⌘R`) draws detected dead-air segments right on the wave |
+| 🔍 | **Real dead-air detection** — `Analyze` (`⌘R`) runs ffmpeg `silencedetect` over the actual audio at your dB threshold |
+| 🌊 | **Real waveform timeline** — decoded from the audio, with detected dead-air segments drawn right on the wave |
 | ✋ | **Review & approve** — click any red block (or its list row) to *keep* that moment instead of cutting it |
-| 📊 | **Live stats** — see time removed and final runtime update as you go |
-| 🎚️ | **Settings drawer** — every slider updates the timeline preview live as you drag |
-| 💾 | **Export cut list** — writes a real, non-destructive JSON EDL of the regions to remove |
+| 📊 | **Live stats** — time removed and final runtime update as you drag the sliders |
+| 🎬 | **Export trimmed video** — frame-accurate re-encode (trim + concat) with a live progress bar you can cancel |
+| 💾 | **Export cut list** — a non-destructive JSON EDL of the exact regions removed |
+| 🎚️ | **Settings drawer** — padding, min-silence, min-keep and threshold all feed the same cut planner |
 | 🗂️ | **Portable settings** — import / export / reset config as `.dom` files |
-
-> **Export trimmed video** is intentionally stubbed with a friendly *"coming in
-> v0.2"* — the button and pipeline are wired, the renderer just isn't hooked up yet.
 
 ---
 
@@ -118,7 +117,7 @@ truly silent moments.
   },
   "output": {
     "mode":         "both", // video · cutlist · both
-    "format":       "mp4",  // mp4 · mkv · mov  (render in v0.2)
+    "format":       "mp4",  // mp4 · mkv · mov  (container for the render)
     "suffix":       "_silencecut",
     "cutlistFormat":"json"  // json · edl
   },
@@ -145,13 +144,15 @@ video-cutting/
 │  └─ README.md          # field reference
 └─ src/
    ├─ main/
-   │  ├─ main.js         # window, native menu, IPC, mock analysis engine
+   │  ├─ main.js         # window, native menu, IPC, job orchestration
+   │  ├─ ffmpeg.js       # engine: probe, silencedetect + waveform, render
    │  ├─ preload.js      # contextBridge — the only renderer ↔ main surface
    │  └─ settings.js     # .dom load / save / merge / validate
    └─ renderer/
       ├─ index.html      # UI structure
       ├─ styles.css      # glassmorphism theme
-      └─ renderer.js     # timeline, drawer, drag-drop, export
+      ├─ cutplan.js      # shared cut planner (padding · min-keep · complement)
+      └─ renderer.js     # timeline, drawer, drag-drop, progress, export
 ```
 
 ---
@@ -165,10 +166,11 @@ CSP, and a narrow context-bridge — the renderer never touches Node directly.
 
 ## 🛣️ Roadmap
 
-- [x] **v0.1** — glassy UI shell, native menus, live timeline, `.dom` settings, mock detection
-- [ ] **v0.2** — real ffmpeg `silencedetect` analysis + actual trimmed-video render
-- [ ] Waveform generated from real audio
+- [x] **v0.1** — glassy UI shell, native menus, `.dom` settings, live timeline
+- [x] Real ffmpeg `silencedetect` analysis + real waveform from decoded audio
+- [x] Frame-accurate trimmed-video render with cancelable progress
 - [ ] Per-segment nudge handles
+- [ ] Keyframe-based fast (stream-copy) cutting mode
 - [ ] Batch / folder processing
 
 ---

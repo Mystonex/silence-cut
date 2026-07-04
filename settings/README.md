@@ -29,7 +29,7 @@ Importing merges a `.dom` on top of the defaults and saves it as the active conf
 | Key             | Values                     | Meaning                                            |
 | --------------- | -------------------------- | -------------------------------------------------- |
 | `mode`          | `video` `cutlist` `both`   | Produce a trimmed video, an EDL/cut list, or both. |
-| `format`        | `mp4` `mkv` `mov`          | Container for the rendered video (v0.2).           |
+| `format`        | `mp4` `mkv` `mov`          | Container for the rendered trimmed video.          |
 | `suffix`        | string                     | Appended to the output filename.                   |
 | `cutlistFormat` | `json` `edl`               | How the cut list is serialized.                    |
 
